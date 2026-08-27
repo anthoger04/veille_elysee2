@@ -25,7 +25,7 @@ from bs4 import BeautifulSoup
 URL = "https://www.elysee.fr/toutes-les-actualites"
 
 # Mots-clés qui indiquent que l'article concerne les JEP / la billetterie
-KEYWORDS = ["patrimoine", "billetterie", "inscri", "creneau", "créneau"]
+KEYWORDS = ["patrimoine", "billetterie", "inscri", "creneau", "créneau", "gironde"]
 
 # Le topic ntfy.sh est lu depuis la variable d'environnement NTFY_TOPIC
 # (définie comme secret GitHub, voir le workflow .yml). En local, vous pouvez
