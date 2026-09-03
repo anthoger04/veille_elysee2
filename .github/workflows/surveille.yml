@@ -2,8 +2,14 @@ name: Surveille billetterie Elysee
 
 on:
   schedule:
-    # Toutes les 5 minutes (minimum autorisé par GitHub Actions)
+    # Filet large : toutes les 5 min, décalé pour éviter la queue GitHub, toute l'année
     - cron: "3-59/5 * * * *"
+    # Filet serré : chaque minute de 17h55 à 17h59 (heure de Paris = 15h55-15h59 UTC)
+    # uniquement du 1er au 15 septembre
+    - cron: "55-59 15 1-15 9 *"
+    # Filet serré : chaque minute de 18h00 à 18h10 (heure de Paris = 16h00-16h10 UTC)
+    # uniquement du 1er au 15 septembre
+    - cron: "0-10 16 1-15 9 *"
   workflow_dispatch: {}  # bouton "Run workflow" manuel dans l'onglet Actions
 
 jobs:
