@@ -21,6 +21,9 @@ jobs:
       - name: Verifie la page actualites
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
         run: python3 surveille_elysee.py
 
       # Sauvegarde l'etat (seen_links.json) pour le prochain run
