@@ -11,13 +11,14 @@ import smtplib
 import sys
 from email.mime.text import MIMEText
 from pathlib import Path
-
 import requests
 from bs4 import BeautifulSoup
 
 URL = "https://www.elysee.fr/toutes-les-actualites"
 
-KEYWORDS = ["patrimoine", "billetterie", "inscri", "creneau", "créneau"]
+# Mots-clés qui indiquent que l'article concerne les JEP / la billetterie
+# (mot "gironde" ajouté TEMPORAIREMENT pour tester la notification)
+KEYWORDS = ["patrimoine", "billetterie", "inscri", "creneau", "créneau", "gironde"]
 
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC")
 EMAIL_FROM = os.environ.get("EMAIL_FROM")
@@ -66,14 +67,15 @@ def notify_ntfy(title, message):
 def notify_email(title, message):
     if not (EMAIL_FROM and EMAIL_APP_PASSWORD and EMAIL_TO):
         return
+    recipients = [addr.strip() for addr in EMAIL_TO.split(",") if addr.strip()]
     try:
         msg = MIMEText(message)
         msg["Subject"] = title
         msg["From"] = EMAIL_FROM
-        msg["To"] = EMAIL_TO
+        msg["To"] = ", ".join(recipients)
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(EMAIL_FROM, EMAIL_APP_PASSWORD)
-            server.sendmail(EMAIL_FROM, [EMAIL_TO], msg.as_string())
+            server.sendmail(EMAIL_FROM, recipients, msg.as_string())
     except Exception as e:
         print(f"Erreur envoi email : {e}")
 
