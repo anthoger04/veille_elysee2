@@ -1,22 +1,15 @@
 #!/usr/bin/env python3
 """
-Surveille la page d'actualités de l'Élysée et envoie une notification push
-(via ntfy.sh) dès qu'un nouvel article mentionnant les Journées du Patrimoine
-apparaît.
-
-Utilisation locale :
-    pip install requests beautifulsoup4
-    python3 surveille_elysee.py
-
-Utilisation recommandée : via GitHub Actions (voir le fichier .github/workflows/
-surveille.yml fourni séparément) pour que ça tourne dans le cloud, gratuitement,
-même ordinateur éteint.
+Surveille la page d'actualités de l'Élysée et envoie une notification
+(ntfy + email) dès qu'un nouvel article mentionnant les Journées du
+Patrimoine apparaît.
 """
-
 import json
 import os
 import re
+import smtplib
 import sys
+from email.mime.text import MIMEText
 from pathlib import Path
 
 import requests
@@ -24,25 +17,20 @@ from bs4 import BeautifulSoup
 
 URL = "https://www.elysee.fr/toutes-les-actualites"
 
-# Mots-clés qui indiquent que l'article concerne les JEP / la billetterie
-KEYWORDS = ["patrimoine", "billetterie", "inscri", "creneau", "créneau", "gironde"]
+KEYWORDS = ["patrimoine", "billetterie", "inscri", "creneau", "créneau"]
 
-# Le topic ntfy.sh est lu depuis la variable d'environnement NTFY_TOPIC
-# (définie comme secret GitHub, voir le workflow .yml). En local, vous pouvez
-# faire : export NTFY_TOPIC="elysee-jep-xk92hd" avant de lancer le script.
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC")
-if not NTFY_TOPIC:
-    sys.exit("Erreur : la variable d'environnement NTFY_TOPIC n'est pas définie.")
+EMAIL_FROM = os.environ.get("EMAIL_FROM")
+EMAIL_APP_PASSWORD = os.environ.get("EMAIL_APP_PASSWORD")
+EMAIL_TO = os.environ.get("EMAIL_TO")
 
 STATE_FILE = Path("seen_links.json")
 
 
 def get_articles():
-    """Récupère la liste des liens d'articles actuellement sur la page."""
     resp = requests.get(URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
-
     links = set()
     for a in soup.find_all("a", href=True):
         href = a["href"]
@@ -61,13 +49,38 @@ def save_seen(links):
     STATE_FILE.write_text(json.dumps(sorted(links)))
 
 
+def notify_ntfy(title, message):
+    if not NTFY_TOPIC:
+        return
+    try:
+        requests.post(
+            f"https://ntfy.sh/{NTFY_TOPIC}",
+            data=message.encode("utf-8"),
+            headers={"Title": title.encode("utf-8"), "Priority": "urgent"},
+            timeout=10,
+        )
+    except Exception as e:
+        print(f"Erreur envoi ntfy : {e}")
+
+
+def notify_email(title, message):
+    if not (EMAIL_FROM and EMAIL_APP_PASSWORD and EMAIL_TO):
+        return
+    try:
+        msg = MIMEText(message)
+        msg["Subject"] = title
+        msg["From"] = EMAIL_FROM
+        msg["To"] = EMAIL_TO
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(EMAIL_FROM, EMAIL_APP_PASSWORD)
+            server.sendmail(EMAIL_FROM, [EMAIL_TO], msg.as_string())
+    except Exception as e:
+        print(f"Erreur envoi email : {e}")
+
+
 def notify(title, message):
-    requests.post(
-        f"https://ntfy.sh/{NTFY_TOPIC}",
-        data=message.encode("utf-8"),
-        headers={"Title": title.encode("utf-8"), "Priority": "urgent"},
-        timeout=10,
-    )
+    notify_ntfy(title, message)
+    notify_email(title, message)
 
 
 def main():
@@ -76,8 +89,6 @@ def main():
     new_links = current - seen
 
     if not seen:
-        # Premier lancement : on mémorise l'état sans notifier (sinon vous
-        # recevrez une notif pour TOUS les articles existants).
         save_seen(current)
         print("Premier lancement : état initial enregistré, pas de notif envoyée.")
         return
