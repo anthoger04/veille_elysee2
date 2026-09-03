@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Surveille la page d'actualités de l'Élysée et envoie une notification
-(ntfy + email) dès qu'un nouvel article mentionnant les Journées du
-Patrimoine apparaît.
+Surveille la page d'actualités de l'Élysée ET la page spécifique des JEP 2026
+pour détecter l'ouverture de la billetterie, et envoie une notification
+(ntfy + email) dès qu'un signal est détecté.
 """
 import json
 import os
@@ -14,11 +14,16 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 
-URL = "https://www.elysee.fr/toutes-les-actualites"
+LISTING_URL = "https://www.elysee.fr/toutes-les-actualites"
 
-# Mots-clés qui indiquent que l'article concerne les JEP / la billetterie
-# (mot "gironde" ajouté TEMPORAIREMENT pour tester la notification)
-KEYWORDS = ["patrimoine", "billetterie", "inscri", "creneau", "créneau", "gironde"]
+# La page spécifique de l'annonce JEP 2026, publiée le 3 septembre 2026
+JEP_PAGE_URL = "https://www.elysee.fr/emmanuel-macron/2026/09/03/les-journees-europeennes-du-patrimoine-2026-au-palais-de-lelysee"
+
+# Phrase qui indique que la billetterie N'EST PAS ENCORE ouverte.
+# Quand elle disparaît de la page, on considère que la billetterie est live.
+PLACEHOLDER_PHRASE = "disponible très prochainement"
+
+KEYWORDS = ["patrimoine", "billetterie", "inscri", "creneau", "créneau"]
 
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC")
 EMAIL_FROM = os.environ.get("EMAIL_FROM")
@@ -26,10 +31,13 @@ EMAIL_APP_PASSWORD = os.environ.get("EMAIL_APP_PASSWORD")
 EMAIL_TO = os.environ.get("EMAIL_TO")
 
 STATE_FILE = Path("seen_links.json")
+JEP_STATE_FILE = Path("jep_page_state.json")
 
+
+# --- Surveillance n°1 : nouveaux articles sur la page listing (filet de sécurité) ---
 
 def get_articles():
-    resp = requests.get(URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+    resp = requests.get(LISTING_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
     links = set()
@@ -49,6 +57,82 @@ def load_seen():
 def save_seen(links):
     STATE_FILE.write_text(json.dumps(sorted(links)))
 
+
+def check_new_articles():
+    seen = load_seen()
+    current = get_articles()
+    new_links = current - seen
+
+    if not seen:
+        save_seen(current)
+        print("Premier lancement (listing) : état initial enregistré.")
+        return
+
+    for link in new_links:
+        low = link.lower()
+        if any(k in low for k in KEYWORDS):
+            notify(
+                "Billetterie JEP Élysée ? (nouvel article)",
+                f"Nouvel article détecté : https://www.elysee.fr{link}",
+            )
+            print(f"[listing] Notification envoyée pour : {link}")
+
+    save_seen(current | seen)
+
+
+# --- Surveillance n°2 : la page JEP précise, détection de la disparition du placeholder ---
+
+def load_jep_state():
+    if JEP_STATE_FILE.exists():
+        return json.loads(JEP_STATE_FILE.read_text())
+    return None  # None = jamais vérifié encore
+
+
+def save_jep_state(placeholder_present):
+    JEP_STATE_FILE.write_text(json.dumps({"placeholder_present": placeholder_present}))
+
+
+def check_jep_page():
+    try:
+        resp = requests.get(JEP_PAGE_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"Erreur lors de la vérification de la page JEP : {e}")
+        return
+
+    page_text = resp.text.lower()
+    placeholder_present = PLACEHOLDER_PHRASE in page_text
+
+    previous_state = load_jep_state()
+
+    if previous_state is None:
+        # Premier passage sur cette page : on enregistre l'état sans notifier,
+        # SAUF si le placeholder est déjà absent (billetterie déjà ouverte !).
+        save_jep_state(placeholder_present)
+        if not placeholder_present:
+            notify(
+                "🚨 Billetterie JEP Élysée OUVERTE (ou probablement) !",
+                f"Le texte d'attente a disparu de la page dès la 1ère vérification : {JEP_PAGE_URL}",
+            )
+            print("[page JEP] ALERTE dès le premier passage : placeholder déjà absent.")
+        else:
+            print("[page JEP] Premier passage : placeholder présent, pas de notif.")
+        return
+
+    was_present = previous_state.get("placeholder_present", True)
+
+    if was_present and not placeholder_present:
+        # Le placeholder vient de disparaître : signal fort d'ouverture !
+        notify(
+            "🚨 Billetterie JEP Élysée OUVERTE !",
+            f"Le texte d'attente a disparu de la page : {JEP_PAGE_URL}",
+        )
+        print("[page JEP] ALERTE : le placeholder a disparu, billetterie probablement ouverte.")
+
+    save_jep_state(placeholder_present)
+
+
+# --- Notifications ---
 
 def notify_ntfy(title, message):
     if not NTFY_TOPIC:
@@ -86,25 +170,8 @@ def notify(title, message):
 
 
 def main():
-    seen = load_seen()
-    current = get_articles()
-    new_links = current - seen
-
-    if not seen:
-        save_seen(current)
-        print("Premier lancement : état initial enregistré, pas de notif envoyée.")
-        return
-
-    for link in new_links:
-        low = link.lower()
-        if any(k in low for k in KEYWORDS):
-            notify(
-                "Billetterie JEP Élysée ?",
-                f"Nouvel article détecté : https://www.elysee.fr{link}",
-            )
-            print(f"Notification envoyée pour : {link}")
-
-    save_seen(current | seen)
+    check_new_articles()
+    check_jep_page()
 
 
 if __name__ == "__main__":
