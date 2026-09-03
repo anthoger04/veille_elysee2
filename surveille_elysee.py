@@ -19,9 +19,9 @@ LISTING_URL = "https://www.elysee.fr/toutes-les-actualites"
 # La page spécifique de l'annonce JEP 2026, publiée le 3 septembre 2026
 JEP_PAGE_URL = "https://www.elysee.fr/emmanuel-macron/2026/09/03/les-journees-europeennes-du-patrimoine-2026-au-palais-de-lelysee"
 
-# Phrase qui indique que la billetterie N'EST PAS ENCORE ouverte.
-# Quand elle disparaît de la page, on considère que la billetterie est live.
-PLACEHOLDER_PHRASE = "disponible très prochainement"
+# Mot qui indique que la billetterie N'EST PAS ENCORE ouverte
+# ("prochainement" n'a pas d'accent, ça évite les soucis d'encodage de caractères)
+PLACEHOLDER_PHRASE = "prochainement"
 
 KEYWORDS = ["patrimoine", "billetterie", "inscri", "creneau", "créneau"]
 
@@ -96,6 +96,7 @@ def check_jep_page():
     try:
         resp = requests.get(JEP_PAGE_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
         resp.raise_for_status()
+        resp.encoding = "utf-8"  # force l'encodage pour éviter les soucis d'accents
     except Exception as e:
         print(f"Erreur lors de la vérification de la page JEP : {e}")
         return
